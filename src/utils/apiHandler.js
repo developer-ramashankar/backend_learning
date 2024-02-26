@@ -20,4 +20,4 @@ class ApiHandler extends Error{
         }
     }
 }
-export {ApiHandler}
+export default ApiHandler
