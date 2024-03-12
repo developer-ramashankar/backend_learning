@@ -1,12 +1,13 @@
-import asyncHandler from "../utils/asynchandler.js";
+import asyncHandler from "../utils/asyncHandler.js";
 import ApiError from "../utils/apiHandler.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponce } from "../utils/apiResponse.js";
+import jwt from "jsonwebtoken"
 
 const createAccessTokenAndRefreshToken = async (userId) => {
   try {
-    const user = User.findById(userId);
+    const user = await User.findById(userId);
     const accessToken = user.generateAccessToken();
     const refreshToken = user.generateRefreshToken();
 
@@ -127,7 +128,8 @@ const loginUser = asyncHandler(async (req, res) => {
   //  send cookies
 
   const { username, email, password } = req.body;
-  if (!username || !email) {
+  console.log(email);
+  if (!username && !email) {
     throw new ApiError(400, "username and Email is required");
   }
 
@@ -147,6 +149,7 @@ const loginUser = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken } = await createAccessTokenAndRefreshToken(
     user._id
   );
+  // console.log(`access: ${accessToken} refresh:${refreshToken}`)
 
   const loggedInUser = await User.findById(user._id).select(
     "-password -refreshToken"
@@ -187,13 +190,54 @@ const logoutUser = asyncHandler(async (req, res) => {
   );
   const options = {
     httpOnly: true, //this means we donot change cookies in frontend only it chagne in server
-    secure: true,  
+    secure: true,
   };
 
   return res
-  .status(200)
-  .clearCookie("accessToken",options)
-  .clearCookie("refreshToken",options)
-  .json(new ApiResponce(200,"User Logout"))
+    .status(200)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(new ApiResponce(200, "User Logout"));
 });
-export { registerUser, loginUser, logoutUser };
+const refeshAccessToken = asyncHandler(async (req, res) => {
+  const incomingRefreshToken =req.cookies.refreshToken || req.body.refreshToken;
+
+    if (incomingRefreshToken) {
+      throw new ApiError(401, "Unauthorized request!!");
+    }
+    
+    try {
+          const decodedToken = jwt.verify(incomingRefreshToken,process.env.REFRESH_TOKEN_SECRET)
+        const user =  await User.findById(decodedToken?._id).select(
+          "-password"
+        )
+        if(!user){
+          throw new ApiError(401,"Invalid Refresh Token")
+        }
+        if(incomingRefreshToken !== user.refreshToken){
+          throw new ApiError(401,"Refresh is Expried or used")
+        }
+      
+        
+        const options={
+          httpOnly:true,
+          secure:true
+        }
+        const {newaccessToken,newrefreshToken} = createAccessTokenAndRefreshToken(user._id)
+  
+        res.status(200)
+        .cookie("accessToken",newaccessToken,options)
+        .cookie("refreshToken",newrefreshToken,options)
+        .json(
+          new ApiResponce(200,
+            {newaccessToken,newrefreshToken},
+            "Access token refreshed"
+            )
+        )
+    } catch (error) {
+      throw new ApiError(401,error?.message || "Invalid Refresh Token")
+    }
+});
+
+
+export { registerUser, loginUser, logoutUser,refeshAccessToken };
